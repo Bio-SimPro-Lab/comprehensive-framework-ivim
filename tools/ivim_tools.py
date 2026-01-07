@@ -409,7 +409,7 @@ class IvimModelEstimator:
             # ---------------------------------------------------------------------
             # Run evaluation (simulation vs. in-vivo)
             # ---------------------------------------------------------------------
-            if self.test_name in ['simulation_dataset_v2', 'simulation_dataset_brain']:
+            if self.test_name in ['simulation_dataset_v2', 'simulation_dataset_brain']: #testing simulations or in vivo data
                 self._evaluate_simulation(
                     Dt, Fp, Dp,
                     D_true, f_true, Dstar_true,
@@ -560,28 +560,6 @@ class IvimModelEstimator:
         # -----------------------------------------------------------------------------
         # Helper: In-vivo dataset evaluation
         # -----------------------------------------------------------------------------
-    def _evaluate_invivo(self, Dt, Fp, Dp,
-                         alea_dt, alea_fp, alea_dp,
-                         epi_dt, epi_fp, epi_dp,
-                         use_ensemble):
-        base_path = os.path.join(self.exper_path, 'in_vivo')
-        os.makedirs(base_path, exist_ok=True)
-
-        mat_data = loadmat(r"C:\Users\39340\Documents\IVIM\IVIM_UQ\dataset\in_vivo_dataset\test_data.mat")
-        cv_mask = mat_data['mask_cv']
-
-        immet.in_vivo_metrics(Dp, Dt, Fp, cv_mask,
-                              os.path.join(base_path, "_statistics_single.csv"),
-                              multi_sample=False)
-
-        if self.model_class in ['MDN'] and use_ensemble:
-            mask_tensor = torch.tensor(cv_mask, dtype=torch.bool)
-
-            self._normalize_and_save_uncertainties(
-                alea_dt, alea_fp, alea_dp,
-                epi_dt, epi_fp, epi_dp, mask = mask_tensor,
-                output_path=os.path.join(base_path, f"uncertainty_values.csv")
-            )
 
     def ensemble_inference(self, X_test, device, b_values_no0):
         """
@@ -739,6 +717,7 @@ class IvimModelEstimator:
 
           d_low, d_up, f_low, f_up, ds_low, ds_up = 0.84e-3-1.96*0.05e-3, 0.84e-3+1.96*0.05e-3, 0.14-1.96*0.02, 0.14+1.96*0.02, 8.2e-3-1.96*0.9e-3, 8.2e-3+1.96*0.9e-3
 
+
         else:
 
           d_low, d_up, f_low, f_up, ds_low, ds_up = self.bounds[0, 1], self.bounds[1, 1], self.bounds[0, 2], self.bounds[1, 2],self.bounds[0, 3], self.bounds[1, 3]
@@ -792,129 +771,4 @@ class IvimModelEstimator:
         plt.tight_layout(rect=[0, 0, 1, 0.96])  # Leave space at top for title
         plt.savefig(save_path, bbox_inches='tight')
         plt.close()
-
-    def plot_in_vivo_maps(self, Dp, Dt, Fp, mask, output_dir,
-                          alea_dp=None, alea_dt=None, alea_fp=None,
-                          epi_dp=None, epi_dt=None, epi_fp=None,
-                          indices=None, dpi=150):
-        import scipy.io
-        import os
-        import numpy as np
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-        mat = scipy.io.loadmat(
-            r"C:\Users\39340\Documents\IVIM\IVIM_UQ\dataset\in_vivo_muscle\bayes_lsq_muscle.mat"
-        )
-        bayes_D, bayes_Dp, bayes_f = (
-            mat['D_TE_50'],
-            mat['Dstar_TE_50'],
-            mat['f_TE_50']
-        )
-        # mat = scipy.io.loadmat(
-        #     r"C:\Users\39340\Documents\IVIM\IVIM_UQ\dataset\in_vivo_dataset\test_data.mat"
-        # )
-        # bayes_D, bayes_Dp, bayes_f = (
-        #     mat['dt_b'],
-        #     mat['dp_b'],
-        #     mat['fp_b']
-        # )
-
-        os.makedirs(output_dir, exist_ok=True)
-        indices = indices if indices is not None else list(range(Dp.shape[0]))
-        has_uncertainty = all(
-            x is not None for x in (alea_dp, alea_dt, alea_fp, epi_dp, epi_dt, epi_fp)
-        )
-
-        def crop_to_mask(img, mask, margin=5):
-            coords = np.argwhere(mask)
-            if coords.size == 0:
-                return img
-            y0, x0 = coords.min(axis=0)
-            y1, x1 = coords.max(axis=0)
-            return img[
-                   max(0, y0 - margin):min(img.shape[0], y1 + margin + 1),
-                   max(0, x0 - margin):min(img.shape[1], x1 + margin + 1)
-                   ]
-
-        def preprocess(img, m):
-            return (np.rot90(crop_to_mask(img * m, m)))
-
-        for idx in indices: #indices
-            print('caricamento indice'+str(idx))
-            m = mask[idx]
-            map_data = [
-                ("D", preprocess(Dt[idx], m), preprocess(bayes_D[idx], m),
-                 preprocess(alea_dt[idx], m) if has_uncertainty else None,
-                 preprocess(epi_dt[idx], m) if has_uncertainty else None,
-                 self.bounds[0, 1], self.bounds[1, 1], 0.002, "mm²/s"),
-                ("f", preprocess(Fp[idx] * 100, m), preprocess(bayes_f[idx] * 100, m),
-                 preprocess(alea_fp[idx], m) if has_uncertainty else None,
-                 preprocess(epi_fp[idx], m) if has_uncertainty else None,
-                 self.bounds[0, 2], self.bounds[1, 2], 15, "%"),
-                ("D*", preprocess(Dp[idx], m), preprocess(bayes_Dp[idx], m),
-                 preprocess(alea_dp[idx], m) if has_uncertainty else None,
-                 preprocess(epi_dp[idx], m) if has_uncertainty else None,
-                 self.bounds[0, 3], self.bounds[1, 3], 0.15, "mm²/s")
-            ]
-
-            nrows, ncols = 4, len(map_data)
-            fig, axes = plt.subplots(
-                nrows=nrows, ncols=ncols,
-                figsize=(12, 10), dpi=dpi,
-                gridspec_kw={'wspace': 0.25, 'hspace': 0.15}
-            )
-
-            # 1) Set the column titles on the top row, leave enough pad
-            for col, (name, *_rest) in enumerate(map_data):
-                axes[0, col].set_title(name, fontsize=16, pad=25)
-
-            # 2) Now plot each panel as before
-            for col, (name, pred, bay, alea, epi, min_b, max_b, vmax, unit) in enumerate(map_data):
-                col_data = [bay, pred]
-                if has_uncertainty:
-                    col_data += [
-                        (alea * 100) / (max_b - min_b),
-                        (epi * 100) / (max_b - min_b)
-                    ]
-
-                cmaps = ['viridis', 'viridis', 'magma', 'magma']
-                vmins = [0, 0, 0, 0]
-                vmaxs = [vmax, vmax, 40, 10]
-                units = [unit, unit, "%", "%"]
-
-                for row in range(nrows):
-                    ax = axes[row, col]
-                    img = col_data[row]
-                    im = ax.imshow(
-                        np.clip(img, vmins[row], vmaxs[row]),
-                        cmap=cmaps[row],
-                        vmin=vmins[row], vmax=vmaxs[row]
-                    )
-                    ax.axis("off")
-
-                    # attach full‐height colorbar
-                    divider = make_axes_locatable(ax)
-                    cax = divider.append_axes("right", size="5%", pad=0.05)
-                    if name == "D":
-                        fmt = "%.3f"
-                    elif name == "f":
-                        fmt = "%.1f"
-                    elif name == "D*":
-                        fmt = "%.2f"
-                    else:
-                        fmt = None
-                    cbar = fig.colorbar(im, cax=cax)
-                    cbar.set_label(units[row], fontsize=9)
-                    cbar.ax.tick_params(labelsize=8)
-
-            # 3) Free up the top margin so those titles are visible
-            fig.subplots_adjust(top=0.88)
-
-            # 4) Save & close
-            plt.savefig(
-                os.path.join(output_dir, f"in_vivo_maps_idx_{idx}.png"),
-                bbox_inches='tight'
-            )
-            plt.close(fig)
 
